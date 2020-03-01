@@ -28,13 +28,16 @@ GMM(x::Vector{T}) where T <: AbstractFloat = GMM(reshape(x, length(x), 1))  # st
 
 ## constructors based on data or matrix
 function GMM(n::Int, x::DataOrMatrix{T}; method::Symbol=:kmeans, kind=:diag,
-             nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0) where T <: AbstractFloat
+             nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0, rng_seed=1) where T <: AbstractFloat
     if n < 2
         GMM(x, kind=kind)
     elseif method==:split
         GMM2(n, x, kind=kind, nIter=nIter, nFinal=nFinal, sparse=sparse)
     elseif method==:kmeans
         GMMk(n, x, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse)
+    elseif method==:kmeansdet
+        rng = MersenneTwister(rng_seed)
+        GMMk(n, x, rng, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse)
     else
         error("Unknown method ", method)
     end
@@ -107,6 +110,85 @@ function GMMk(n::Int, x::DataOrMatrix{T}; kind=:diag, nInit::Int=50, nIter::Int=
     #    loglevel = :none
     #end
     km = Clustering.kmeans(xx'[:,:], n, maxiter=nInit, display = loglevel)
+    μ::Matrix{T} = km.centers'
+    if kind == :diag
+        ## helper that deals with centers with singleton datapoints.
+        function variance(i::Int)
+            sel = km.assignments .== i
+            if length(sel) < 2
+                return ones(1,d)
+            else
+                return var(xx[sel,:],dims=1)
+            end
+        end
+        Σ = convert(Matrix{T},vcat(map(variance, 1:n)...))
+    elseif kind == :full
+        function cholinvcov(i::Int)
+            sel = km.assignments .== i
+            if sum(sel) < d
+                return cholinv(eye(d))
+            else
+                return cholinv(cov(xx[sel,:]))
+            end
+        end
+        Σ = convert(FullCov{T},[cholinvcov(i) for i=1:n])
+    else
+        error("Unknown kind")
+    end
+    w::Vector{T} = km.counts ./ sum(km.counts)
+    nxx = size(xx,1)
+    ng = length(w)
+    push!(hist, History(string("K-means with ", nxx, " data points using ", km.iterations, " iterations\n", @sprintf("%3.1f data points per parameter",nxx/((d+1)ng)))))
+    @info(last(hist).s)
+    gmm = GMM(w, μ, Σ, hist, nxx)
+    sanitycheck!(gmm)
+    em!(gmm, x; nIter=nIter, sparse=sparse)
+    gmm
+end
+
+
+## initialize GMM using Clustering.kmeans (which uses a method similar to kmeans++)
+## But do it in a way that is deterministic,
+# By passing a random number generator for the subsampling of the data 
+# and passing a deterministic "init" to Clustering.kmeans
+function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit::Int=50, nIter::Int=10, sparse=0) where T <: AbstractFloat
+    nₓ, d = size(x)
+    hist = [History(@sprintf("Initializing GMM, %d Gaussians %s covariance %d dimensions using %d data points", n, diag, d, nₓ))]
+    @info(last(hist).s)
+    ## subsample x to max 1000 points per mean
+    nneeded = 1000*n
+    if nₓ < nneeded
+        if isa(x, Matrix)
+            xx = x
+        else
+            xx = collect(x)             # convert to an array
+        end
+    else
+        if isa(x, Matrix)
+            xx = x[sample(rng, 1:nₓ, nneeded, replace=false),:]
+        else
+            ## Data.  Sample an equal amount from every entry in the list x. This reads in
+            ## all data, and may require a lot of memory for very long lists.
+            yy = Matrix[]
+            for y in x
+                ny = size(y,1)
+                nsample = min(ny, @compat ceil(Integer, nneeded / length(x)))
+                push!(yy, y[sample(rng, 1:ny, nsample, replace=false),:])
+            end
+            xx = vcat(yy...)
+        end
+    end
+    #if Logging._root.level ≤ Logging.DEBUG
+        loglevel = :iter
+    #elseif Logging._root.level ≤ Logging.INFO
+    #    loglevel = :final
+    #else
+    #    loglevel = :none
+    #end
+    #https://juliastats.org/Clustering.jl/dev/kmeans.html
+    #init: an integer vector of length k (in this code, n) that provides the indices of points to use as initial seeds.
+    kmeans_init_list = range(1, length=n, stop=size(xx)[1])
+    km = Clustering.kmeans(xx'[:,:], n, init=kmeans_init_list, maxiter=nInit, display = loglevel)
     μ::Matrix{T} = km.centers'
     if kind == :diag
         ## helper that deals with centers with singleton datapoints.
