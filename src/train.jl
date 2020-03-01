@@ -37,7 +37,7 @@ function GMM(n::Int, x::DataOrMatrix{T}; method::Symbol=:kmeans, kind=:diag,
         GMMk(n, x, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse)
     elseif method==:kmeansdet
         rng = MersenneTwister(rng_seed)
-        GMMk(n, x, rng, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse)
+        GMMkdet(n, x, rng, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse)
     else
         error("Unknown method ", method)
     end
