@@ -5,6 +5,7 @@ using StatsBase: sample
 using Logging
 using LinearAlgebra
 using Arpack
+using Random: AbstractRNG, MersenneTwister
 
 ## Greate a GMM with only one mixture and initialize it to ML parameters
 function GMM(x::DataOrMatrix{T}; kind=:diag) where T <: AbstractFloat
@@ -28,7 +29,7 @@ GMM(x::Vector{T}) where T <: AbstractFloat = GMM(reshape(x, length(x), 1))  # st
 
 ## constructors based on data or matrix
 function GMM(n::Int, x::DataOrMatrix{T}; method::Symbol=:kmeans, kind=:diag,
-             nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0, rng_seed=1) where T <: AbstractFloat
+             nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0, rng_seed=1) where T
     if n < 2
         GMM(x, kind=kind)
     elseif method==:split
@@ -43,7 +44,7 @@ function GMM(n::Int, x::DataOrMatrix{T}; method::Symbol=:kmeans, kind=:diag,
     end
 end
 ## a 1-dimensional Gaussian can be initialized with a vector, skip kind=
-GMM(n::Int, x::Vector{T}; method::Symbol=:kmeans, nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0) where T <: AbstractFloat = GMM(n, reshape(x, length(x), 1); method=method, kind=:diag, nInit=nInit, nIter=nIter, nFinal=nFinal, sparse=sparse)
+GMM(n::Int, x::Vector{T}; method::Symbol=:kmeans, nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0) where T = GMM(n, reshape(x, length(x), 1); method=method, kind=:diag, nInit=nInit, nIter=nIter, nFinal=nFinal, sparse=sparse)
 
 ## we sometimes end up with pathological gmms
 function sanitycheck!(gmm::GMM)
@@ -75,7 +76,7 @@ end
 
 
 ## initialize GMM using Clustering.kmeans (which uses a method similar to kmeans++)
-function GMMk(n::Int, x::DataOrMatrix{T}; kind=:diag, nInit::Int=50, nIter::Int=10, sparse=0) where T <: AbstractFloat
+function GMMk(n::Int, x::DataOrMatrix{T}; kind=:diag, nInit::Int=50, nIter::Int=10, sparse=0) where T
     nₓ, d = size(x)
     hist = [History(@sprintf("Initializing GMM, %d Gaussians %s covariance %d dimensions using %d data points", n, diag, d, nₓ))]
     @info(last(hist).s)
@@ -145,8 +146,6 @@ function GMMk(n::Int, x::DataOrMatrix{T}; kind=:diag, nInit::Int=50, nIter::Int=
     em!(gmm, x; nIter=nIter, sparse=sparse)
     gmm
 end
-
-
 ## initialize GMM using Clustering.kmeans (which uses a method similar to kmeans++)
 ## But do it in a way that is deterministic,
 # By passing a random number generator for the subsampling of the data 
@@ -187,7 +186,8 @@ function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit
     #end
     #https://juliastats.org/Clustering.jl/dev/kmeans.html
     #init: an integer vector of length k (in this code, n) that provides the indices of points to use as initial seeds.
-    kmeans_init_list = range(1, length=n, stop=size(xx)[1])
+    kmeans_init_list = Int.(floor.(collect(range(1, length=n, stop=size(xx)[1]))))
+    println("Using init idxs: ", kmeans_init_list)
     km = Clustering.kmeans(xx'[:,:], n, init=kmeans_init_list, maxiter=nInit, display = loglevel)
     μ::Matrix{T} = km.centers'
     if kind == :diag
@@ -224,7 +224,6 @@ function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit
     em!(gmm, x; nIter=nIter, sparse=sparse)
     gmm
 end
-
 ## Train a GMM by consecutively splitting all means.  n most be a power of 2
 ## This kind of initialization is deterministic, but doesn't work particularily well, its seems
 ## We start with one Gaussian, and consecutively split.
