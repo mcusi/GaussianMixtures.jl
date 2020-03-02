@@ -29,7 +29,7 @@ GMM(x::Vector{T}) where T <: AbstractFloat = GMM(reshape(x, length(x), 1))  # st
 
 ## constructors based on data or matrix
 function GMM(n::Int, x::DataOrMatrix{T}; method::Symbol=:kmeans, kind=:diag,
-             nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0, rng_seed=1) where T
+             nInit::Int=50, nIter::Int=10, nFinal::Int=nIter, sparse=0, rng_seed=1, loglevel=0) where T
     if n < 2
         GMM(x, kind=kind)
     elseif method==:split
@@ -38,7 +38,7 @@ function GMM(n::Int, x::DataOrMatrix{T}; method::Symbol=:kmeans, kind=:diag,
         GMMk(n, x, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse)
     elseif method==:kmeansdet
         rng = MersenneTwister(rng_seed)
-        GMMkdet(n, x, rng, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse)
+        GMMkdet(n, x, rng, kind=kind, nInit=nInit, nIter=nIter, sparse=sparse, loglevel=loglevel)
     else
         error("Unknown method ", method)
     end
@@ -150,7 +150,7 @@ end
 ## But do it in a way that is deterministic,
 # By passing a random number generator for the subsampling of the data 
 # and passing a deterministic "init" to Clustering.kmeans
-function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit::Int=50, nIter::Int=10, sparse=0) where T <: AbstractFloat
+function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit::Int=50, nIter::Int=10, sparse=0, loglevel=0) where T <: AbstractFloat
     nₓ, d = size(x)
     hist = [History(@sprintf("Initializing GMM, %d Gaussians %s covariance %d dimensions using %d data points", n, diag, d, nₓ))]
     @info(last(hist).s)
@@ -178,10 +178,10 @@ function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit
         end
     end
 
-    if Logging.min_enabled_level(Logging.current_logger()) <= LogLevel(-1)
-        loglevel = :iter
+    if loglevel <= -1 
+        kmeans_display = :iter
     else 
-        loglevel = :none
+        kmeans_display = :none
     end
     #if Logging._root.level ≤ Logging.DEBUG
     #.   loglevel = :iter
@@ -193,7 +193,7 @@ function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit
     #https://juliastats.org/Clustering.jl/dev/kmeans.html
     #init: an integer vector of length k (in this code, n) that provides the indices of points to use as initial seeds.
     kmeans_init_list = Int.(floor.(collect(range(1, length=n, stop=size(xx)[1]))))
-    km = Clustering.kmeans(xx'[:,:], n, init=kmeans_init_list, maxiter=nInit, display = loglevel)
+    km = Clustering.kmeans(xx'[:,:], n, init=kmeans_init_list, maxiter=nInit, display=kmeans_display)
     μ::Matrix{T} = km.centers'
     if kind == :diag
         ## helper that deals with centers with singleton datapoints.
