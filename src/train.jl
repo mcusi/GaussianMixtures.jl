@@ -177,8 +177,14 @@ function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit
             xx = vcat(yy...)
         end
     end
-    #if Logging._root.level ≤ Logging.DEBUG
+
+    if Logging.min_enabled_level(Logging.current_logger()) <= LogLevel(-1)
         loglevel = :iter
+    else 
+        loglevel = :none
+    end
+    #if Logging._root.level ≤ Logging.DEBUG
+    #.   loglevel = :iter
     #elseif Logging._root.level ≤ Logging.INFO
     #    loglevel = :final
     #else
@@ -187,7 +193,6 @@ function GMMkdet(n::Int, x::DataOrMatrix{T}, rng::AbstractRNG; kind=:diag, nInit
     #https://juliastats.org/Clustering.jl/dev/kmeans.html
     #init: an integer vector of length k (in this code, n) that provides the indices of points to use as initial seeds.
     kmeans_init_list = Int.(floor.(collect(range(1, length=n, stop=size(xx)[1]))))
-    println("Using init idxs: ", kmeans_init_list)
     km = Clustering.kmeans(xx'[:,:], n, init=kmeans_init_list, maxiter=nInit, display = loglevel)
     μ::Matrix{T} = km.centers'
     if kind == :diag
