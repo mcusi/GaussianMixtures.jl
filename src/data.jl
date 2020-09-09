@@ -30,7 +30,7 @@ end
 
 ## courtesy compatible save for a matrix
 function JLD2.save(file::AbstractString, x::Matrix)
-    save(file,"data", x)
+    JLD2.save(file,"data", x)
 end
 
 ## Data([strings], type; load=loadfunction, size=sizefunction)
